@@ -1,0 +1,35 @@
+# Entorno virtual
+.venv/
+venv/
+env/
+
+# Variables de entorno reales (nunca subir credenciales)
+.env
+.env.local
+
+# Bytecode / cache de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# Herramientas de testing / cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Editores / IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Alembic (mantener migraciones, ignorar solo archivos temporales si aplica)

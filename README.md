@@ -1,0 +1,352 @@
+# SeNaSa Visits API (Backend)
+
+Backend del sistema web institucional de gestión y registro de visitas de SeNaSa.
+Proyecto **independiente** del frontend (React + Vite); no comparte archivos ni configuración con él.
+
+> **Estado actual:** Fases 1 a 13 completadas. Existen modelos ORM, migraciones aplicadas,
+> autenticación JWT, autorización, aislamiento por sucursal, usuarios, visitantes, visitas,
+> auditoría, Dashboard y Reportes. Notificaciones y citas/pre-registro siguen pendientes.
+
+## 1. Qué es el proyecto
+
+API REST para el registro y consulta de visitas institucionales de SeNaSa, con soporte
+para múltiples sucursales/puntos de servicio. Una regla de negocio central (a implementar
+en fases posteriores) es que **un usuario asignado a una sucursal no puede consultar,
+modificar ni eliminar información de otra sucursal**; esta restricción se aplicará en el
+backend, no solo en el frontend.
+
+## 2. Tecnologías utilizadas
+
+- Python 3.11+
+- FastAPI + Uvicorn
+- SQLAlchemy 2.x (ORM)
+- Alembic (migraciones)
+- Pydantic / Pydantic Settings
+- SQL Server (motor final) vía PyODBC
+- PyJWT (tokens JWT de autenticación)
+- pwdlib (hashing seguro de contraseñas)
+- Pytest + httpx (pruebas)
+
+## 3. Arquitectura
+
+Arquitectura inspirada en **Clean Architecture**, con responsabilidades separadas en capas:
+
+```
+app/
+├── domain/          # Entidades, enums y contratos de repositorio (sin dependencias externas)
+├── application/     # Casos de uso, DTOs, interfaces y validadores
+├── infrastructure/  # SQLAlchemy, repositorios concretos, autenticación, servicios externos
+├── api/              # Routers, middlewares y dependencias de FastAPI
+└── core/            # Configuración centralizada, excepciones y seguridad transversal
+
+migrations/          # Alembic y revisiones aplicadas
+tests/               # Pruebas con pytest
+main.py              # Punto de entrada de la aplicación FastAPI
+```
+
+La capa `domain` no depende de ninguna otra. `application` depende solo de `domain`.
+`infrastructure` implementa los contratos definidos en `domain`/`application`. `api` orquesta
+todo mediante inyección de dependencias de FastAPI.
+
+## 4. Requisitos para ejecutarlo
+
+- Python 3.11 o superior
+- Driver ODBC de SQL Server instalado (por ejemplo, "ODBC Driver 17/18 for SQL Server")
+- Acceso a una instancia de SQL Server con la base de datos `SeNaSaVisitsDB` creada
+
+## 5. Crear el entorno virtual
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+## 6. Instalar dependencias
+
+```powershell
+pip install -r requirements.txt
+```
+
+## 7. Configurar `.env`
+
+Copia `.env.example` a `.env` y completa los valores reales (nunca subas `.env` a Git):
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Variables principales:
+
+- `DATABASE_URL`: cadena `mssql+pyodbc` desde `.env`; en desarrollo local se usa `odbc_connect` con Shared Memory y autenticación Windows
+- `JWT_SECRET_KEY`: clave secreta para firmar JWT (cámbiala en producción)
+- `CORS_ORIGINS`: orígenes permitidos para el frontend (por defecto `http://localhost:5173`)
+- `ENVIRONMENT`: `development` o `production`
+
+## 8. Iniciar FastAPI
+
+```powershell
+uvicorn main:app --reload
+```
+
+ La API quedará disponible en [http://localhost:8000](http://localhost:8000).
+
+## 9. Acceder a Swagger / ReDoc
+
+- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+- ReDoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+- Verificación de API: `GET http://localhost:8000/api/health`
+- Verificación de API y base de datos: `GET http://localhost:8000/api/health/db`
+- Login: `POST http://localhost:8000/api/auth/login`
+- Usuario autenticado: `GET http://localhost:8000/api/auth/me`
+
+## 10. Ejecutar las pruebas
+
+```powershell
+pytest
+```
+
+## 11. Ejecutar Alembic
+
+```powershell
+# Crear una migración a partir de los modelos ORM
+alembic revision --autogenerate -m "descripcion del cambio"
+
+# Aplicar migraciones pendientes
+alembic upgrade head
+
+# Revertir la última migración
+alembic downgrade -1
+```
+
+Alembic toma la cadena de conexión desde `DATABASE_URL` (a través de `Settings`), nunca
+desde `alembic.ini` directamente.
+
+La migración inicial es `migrations/versions/df98eb51ee34_initial_schema.py` y la corrección del default UTC de notificaciones es `migrations/versions/276b94986df8_fix_notification_utc_default.py`. Para consultar el estado:
+
+```powershell
+alembic current
+alembic history
+```
+
+## 12. Autenticación inicial
+
+La autenticación usa Argon2 mediante `pwdlib` y tokens JWT firmados con `JWT_SECRET_KEY`.
+El token solo contiene `sub`, `type`, `iat` y `exp`; no contiene contraseñas, hashes ni permisos.
+
+Login JSON:
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+```
+
+```json
+{
+  "username": "usuario",
+  "password": "contraseña"
+}
+```
+
+La respuesta contiene `access_token`, `token_type` y datos básicos del usuario, nunca `PasswordHash`.
+El endpoint `GET /api/auth/me` requiere `Authorization: Bearer <token>`.
+
+Para crear manualmente un usuario local de desarrollo, sin ejecutarlo al iniciar FastAPI:
+
+```powershell
+python -m scripts.bootstrap_user --username admin
+```
+
+El comando solicita la contraseña de forma interactiva, genera un hash Argon2 y no crea roles ni sucursales automáticamente.
+
+## 13. Autorización y seeds manuales
+
+La autorización se evalúa en backend mediante `PermissionService` y respeta esta precedencia:
+
+```text
+DENY explícito > ALLOW explícito > permiso heredado por RolePermission > denegar
+```
+
+Los permisos `BRANCH` requieren `branch_id` y una asignación vigente en `UserBranchAssignment`. Los permisos `GLOBAL` no requieren sucursal y no se utiliza una sucursal ficticia llamada `GLOBAL`.
+
+Seeds manuales, idempotentes y transaccionales:
+
+```powershell
+python -m scripts.seed_permissions
+python -m scripts.seed_roles
+python -m scripts.seed_role_permissions --assigned-by-user-id <id>
+```
+
+El último comando requiere que exista un usuario activo para registrar `AssignedByUserId`. Ningún seed se ejecuta al iniciar FastAPI.
+
+Endpoint diagnóstico protegido:
+
+```http
+GET /api/auth/permissions/{permission_code}?branch_id=1
+Authorization: Bearer <token>
+```
+
+Solo muestra el resultado de evaluación y no otorga permisos. No reemplaza la autorización específica de los endpoints de negocio.
+
+## 16. Gestión de visitantes
+
+Los visitantes son perfiles globales y no tienen `BranchId`. La gestión utiliza:
+
+```text
+GET    /api/visitors
+GET    /api/visitors/{visitor_id}
+POST   /api/visitors
+PATCH  /api/visitors/{visitor_id}
+POST   /api/visitors/{visitor_id}/activate
+POST   /api/visitors/{visitor_id}/deactivate
+```
+
+Permisos:
+
+```text
+VIEW_VISITORS
+CREATE_VISITOR
+UPDATE_VISITOR
+```
+
+La identificación se normaliza de forma conservadora para búsquedas y duplicados, pero `IdentificationNormalized` nunca se acepta desde el cliente ni aparece en respuestas. La identificación original se conserva y se devuelve enmascarada. Los visitantes sin identificación no se deduplican por nombre, teléfono, email o empresa.
+
+Los listados aplican búsqueda, filtros, `COUNT`, `OFFSET` y `LIMIT` directamente en SQLAlchemy. La activación y desactivación son cambios lógicos mediante `IsActive`; no existe borrado físico.
+
+## 18. Auditoría
+
+La auditoría operativa utiliza `AuditService` y registra únicamente eventos definidos para usuarios, visitantes, visitas y login. Los valores se serializan como JSON mínimo y se redactan claves sensibles como passwords, hashes, tokens, Authorization, secrets y credenciales.
+
+Eventos implementados:
+
+```text
+LOGIN
+CREATE_USER
+UPDATE_USER
+DEACTIVATE_USER
+ASSIGN_USER_BRANCH
+MOVE_USER_BRANCH
+CREATE_VISITOR
+UPDATE_VISITOR
+CREATE_VISIT
+CHECKOUT_VISIT
+CANCEL_VISIT
+```
+
+La escritura de auditoría es append-only desde la aplicación: no existen endpoints de POST, PATCH, PUT ni DELETE para `AuditLog`. El único endpoint público es:
+
+```text
+GET /api/audit-logs
+```
+
+Requiere `VIEW_AUDIT_LOGS`, soporta paginación y filtros SQL. La respuesta vuelve a redactar `OldValues` y `NewValues` para proteger registros históricos potencialmente contaminados.
+
+## 19. Dashboard operacional
+
+La Fase 12 expone métricas agregadas sin crear tablas nuevas:
+
+```text
+GET /api/dashboard/summary
+GET /api/dashboard/visits-by-day
+GET /api/dashboard/visits-by-status
+GET /api/dashboard/visits-by-reason
+```
+
+Los endpoints requieren `VIEW_REPORTS` para el Dashboard de la sucursal actual o `VIEW_GLOBAL_REPORTS` para un Dashboard global. No aceptan `branch_id` como fuente de autoridad.
+
+Los rangos opcionales `date_from` y `date_to` reciben fecha/hora ISO 8601 UTC. Las métricas se calculan en SQL Server mediante `COUNT`, `COUNT DISTINCT` y `GROUP BY`; no se cargan todas las visitas en memoria.
+
+## 20. Reportes
+
+La Fase 13 expone consultas históricas y agrupadas:
+
+```text
+GET /api/reports/visits
+GET /api/reports/visits/summary
+```
+
+Los reportes aceptan filtros combinables por rango UTC, estado, motivo, visitante, usuario registrador, sucursal y búsqueda textual. El reporte detallado utiliza paginación estable por `EntryAt DESC, Id DESC`.
+
+`VIEW_REPORTS` limita la consulta a la sucursal actual. `VIEW_GLOBAL_REPORTS` permite consultar globalmente o filtrar una sucursal concreta. `branch_id` nunca amplía el alcance del usuario.
+
+El resumen acepta `group_by=status|reason|registered_by|branch`; la agrupación por sucursal requiere alcance global. No se implementan exportaciones CSV, Excel o PDF en esta fase.
+
+## 17. Gestión de visitas
+
+Los endpoints disponibles son:
+
+```text
+GET    /api/visits
+GET    /api/visits/{visit_id}
+POST   /api/visits
+PATCH  /api/visits/{visit_id}
+POST   /api/visits/{visit_id}/complete
+POST   /api/visits/{visit_id}/cancel
+```
+
+Permisos:
+
+```text
+VIEW_VISITS
+CREATE_VISIT
+UPDATE_VISIT
+```
+
+La creación deriva `BranchId` de la asignación vigente del usuario y `RegisteredByUserId` de su identidad JWT. El cliente no puede establecer esos valores. Todas las consultas filtran por `Visit.branch_id` en SQLAlchemy.
+
+Las transiciones permitidas son:
+
+```text
+ACTIVE -> COMPLETED
+ACTIVE -> CANCELLED
+```
+
+Una visita completada o cancelada no se elimina ni vuelve a estado activo. `Visit.BranchId` y `RegisteredByUserId` permanecen históricos incluso si el usuario cambia de sucursal.
+
+## 15. Gestión de usuarios y sucursales
+
+La gestión administrativa está disponible bajo `/api/users` y exige permisos materializados:
+
+```text
+MANAGE_USERS          usuarios y roles
+ASSIGN_USER_BRANCH    asignaciones iniciales
+MOVE_USER_BRANCH      transferencias
+```
+
+Endpoints principales:
+
+```text
+GET    /api/users
+GET    /api/users/{user_id}
+POST   /api/users
+PATCH  /api/users/{user_id}
+POST   /api/users/{user_id}/activate
+POST   /api/users/{user_id}/deactivate
+GET    /api/users/{user_id}/assignments
+POST   /api/users/{user_id}/assignments
+GET    /api/users/{user_id}/roles
+POST   /api/users/{user_id}/transfer
+```
+
+Las respuestas nunca incluyen `PasswordHash`. Las contraseñas nuevas se convierten a Argon2 antes de persistirse.
+
+Las transferencias cierran la asignación vigente y crean una nueva dentro de una única transacción. SQL Server utiliza `UPDLOCK, HOLDLOCK` al leer el historial del usuario para impedir dos transferencias concurrentes. La visita histórica no se modifica: `Visit.BranchId` continúa representando la sucursal donde se registró.
+
+Las asignaciones usan intervalos `[ValidFrom, ValidUntil)`, conservan el historial y rechazan solapamientos. Desactivar un usuario solo cambia `IsActive` y `DeactivatedAt`; no borra usuarios, visitas, auditoría ni asignaciones.
+
+## 14. Aislamiento por sucursal
+
+La infraestructura de Fase 7 resuelve el contexto mediante `BranchAccessService` y `get_current_branch`. La consulta de la asignación vigente filtra por `Status = 'ACTIVE'`, `ValidFrom <= ahora` y `ValidUntil IS NULL OR ahora < ValidUntil`. Si no existe exactamente una asignación vigente, el acceso se deniega; no se escoge una fila arbitrariamente.
+
+`require_branch_permission("VIEW_VISITS")` combina usuario autenticado, contexto vigente y `PermissionService`. Un `branch_id` enviado por query o path solo se compara con el contexto autorizado. Si difiere, se devuelve `403`; nunca cambia la sucursal del usuario.
+
+Las consultas futuras de visitas deben usar `VisitAccessService.list_query(context)`, que genera el predicado SQL `Visit.branch_id == context.branch_id`. No se permite traer todas las visitas y filtrar después en Python. `Visit.BranchId` es la pertenencia histórica del recurso; el cambio posterior de sucursal del usuario no modifica ese valor.
+
+`Visitor` no tiene `BranchId` en el esquema aprobado. Por eso no se inventa una columna: su alcance futuro deberá derivarse del recurso u operación relacionada y no de una relación inexistente.
+
+## Notas de seguridad
+
+- Las contraseñas nunca se almacenan en texto plano (se usará `pwdlib`).
+- Los secretos (JWT, credenciales de base de datos) viven únicamente en `.env`, fuera de Git.
+- El manejo de errores está centralizado (`app/core/exceptions.py`) y no expone detalles internos.
+- El aislamiento de datos por sucursal se diseñará en la capa de dominio/aplicación e infraestructura
+  antes de implementar los endpoints de negocio, para no tener que rediseñar el proyecto después.
