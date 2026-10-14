@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
-
 import jwt
 from pwdlib import PasswordHash
 
@@ -20,7 +19,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return _password_hasher.verify(plain_password, hashed_password)
 
 
-def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None) -> str:
+def create_access_token(subject: str) -> str:
     """Generate a short-lived access token containing only identity claims."""
     settings = get_settings()
     issued_at = datetime.now(timezone.utc)
@@ -31,8 +30,6 @@ def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None
         "iat": issued_at,
         "exp": expire,
     }
-    if extra_claims:
-        payload.update(extra_claims)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 

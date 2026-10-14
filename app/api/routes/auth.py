@@ -35,17 +35,15 @@ def invalid_credentials() -> HTTPException:
 def serialize_user(user: User) -> AuthenticatedUserResponse:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     active_roles = [assignment.role.code for assignment in user.user_roles if assignment.is_active and assignment.role.is_active]
-    active_assignment = next(
-        (
-            assignment
-            for assignment in user.branch_assignments
-            if assignment.status == "ACTIVE"
-            and assignment.valid_from <= now
-            and (assignment.valid_until is None or assignment.valid_until > now)
-            and assignment.branch.is_active
-        ),
-        None,
-    )
+    active_assignments = [
+        assignment
+        for assignment in user.branch_assignments
+        if assignment.status == "ACTIVE"
+        and assignment.valid_from <= now
+        and (assignment.valid_until is None or assignment.valid_until > now)
+        and assignment.branch.is_active
+    ]
+    active_assignment = active_assignments[0] if len(active_assignments) == 1 else None
     branch = (
         BranchSummary(
             id=active_assignment.branch.id,
@@ -65,7 +63,14 @@ def serialize_user(user: User) -> AuthenticatedUserResponse:
     )
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Credenciales inválidas"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Servicio de autenticación no disponible"},
+    },
+)
 def login(credentials: LoginRequest, db: Annotated[Session, Depends(get_db)], request: Request) -> LoginResponse:
     try:
         user = db.scalar(
@@ -86,7 +91,13 @@ def login(credentials: LoginRequest, db: Annotated[Session, Depends(get_db)], re
             raise invalid_credentials()
     except HTTPException:
         raise
-    except (SQLAlchemyError, ValueError, TypeError):
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servicio de autenticación no disponible",
+            headers={"Retry-After": "5"},
+        ) from None
+    except (ValueError, TypeError):
         raise invalid_credentials() from None
 
     AuditService(db).record(actor_user_id=user.id, action="LOGIN", entity_type="User", entity_id=user.id, new_values={"user_id": user.id, "username": user.username}, **audit_context_from_request(request).__dict__)

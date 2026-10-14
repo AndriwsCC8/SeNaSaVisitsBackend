@@ -5,17 +5,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies.permissions import DbSession, require_permission
+from app.api.dependencies.branch_access import require_branch_permission
+from app.api.dependencies.permissions import DbSession
 from app.application.dto.visitors import VisitorCreate, VisitorListResponse, VisitorResponse, VisitorTypeResponse, VisitorUpdate
 from app.application.services.visitors import VisitorManagementService
 from app.application.services.audit import audit_context_from_request
 from app.application.validators.visitors import mask_identification
-from app.infrastructure.persistence.models import Visitor
+from app.infrastructure.persistence.models import User, Visitor
 
 router = APIRouter(prefix="/visitors", tags=["visitors"])
-ViewVisitors = Annotated[object, Depends(require_permission("VIEW_VISITORS"))]
-CreateVisitors = Annotated[object, Depends(require_permission("CREATE_VISITOR"))]
-UpdateVisitors = Annotated[object, Depends(require_permission("UPDATE_VISITOR"))]
+ViewVisitors = Annotated[User, Depends(require_branch_permission("VIEW_VISITORS"))]
+CreateVisitors = Annotated[User, Depends(require_branch_permission("CREATE_VISITOR"))]
+UpdateVisitors = Annotated[User, Depends(require_branch_permission("UPDATE_VISITOR"))]
 
 
 def serialize_visitor(visitor: Visitor) -> VisitorResponse:

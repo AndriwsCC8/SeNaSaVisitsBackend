@@ -83,6 +83,11 @@ def test_user_routes_are_documented_with_expected_methods() -> None:
     assert "/api/users/{user_id}/transfer" in schema["paths"]
     assert "post" in schema["paths"]["/api/users/{user_id}/transfer"]
 
+    create_parameters = schema["paths"]["/api/users"]["post"].get("parameters", [])
+    user_detail_parameters = schema["paths"]["/api/users/{user_id}"]["get"].get("parameters", [])
+    assert "branch_id" not in {item["name"] for item in create_parameters}
+    assert "branch_id" not in {item["name"] for item in user_detail_parameters}
+
 
 def test_user_management_does_not_create_schema_objects() -> None:
     assert NoDatabaseSession().in_transaction() is False

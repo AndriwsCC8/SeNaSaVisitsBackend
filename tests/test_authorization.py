@@ -153,6 +153,6 @@ def test_require_permission_returns_403_for_authenticated_user_without_access() 
     db = FakeSession([True, permission, 100], [], [])
 
     with pytest.raises(HTTPException) as error:
-        dependency(request, user, db, 3)
+        dependency(user, db)
 
     assert error.value.status_code == 403

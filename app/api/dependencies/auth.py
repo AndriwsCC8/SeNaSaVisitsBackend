@@ -4,7 +4,7 @@ from typing import Annotated
 
 import jwt
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -13,7 +13,7 @@ from app.infrastructure.database.session import get_db
 from app.infrastructure.persistence.models import User, UserBranchAssignment, UserRole
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def authentication_error() -> HTTPException:
@@ -25,11 +25,13 @@ def authentication_error() -> HTTPException:
 
 
 def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
+    if credentials is None:
+        raise authentication_error()
     try:
-        payload = decode_token(token)
+        payload = decode_token(credentials.credentials)
         if payload.get("type") != "access":
             raise authentication_error()
         subject = payload.get("sub")

@@ -37,7 +37,10 @@ class Settings(BaseSettings):
     refresh_token_expire_minutes: int = 10080
 
     # CORS
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = (
+        "http://localhost:5173,http://localhost:8443,https://localhost:8443,"
+        "http://127.0.0.1:8443,https://127.0.0.1:8443"
+    )
 
     @model_validator(mode="after")
     def validate_jwt_secret(self) -> "Settings":

@@ -4,12 +4,13 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.dependencies.auth import get_current_user
 from app.core.config import get_settings
 from app.core.security import create_access_token, decode_token, hash_password, verify_password
 from app.infrastructure.database.session import get_db
-from app.infrastructure.persistence.models import Role, User, UserRole
+from app.infrastructure.persistence.models import Branch, Role, User, UserBranchAssignment, UserRole
 from main import app
 
 
@@ -98,6 +99,47 @@ def test_login_returns_user_without_password_hash() -> None:
     assert "PasswordHash" not in body
 
 
+def test_login_returns_branch_only_when_exactly_one_current_assignment_exists() -> None:
+    user = make_user()
+    branch = Branch(id=3, code="HQ", name="Central", branch_type_id=1, is_active=True)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    user.branch_assignments = [
+        UserBranchAssignment(
+            id=11,
+            user_id=user.id,
+            branch_id=3,
+            branch=branch,
+            valid_from=now - timedelta(minutes=1),
+            valid_until=None,
+            assigned_by_user_id=user.id,
+            status="ACTIVE",
+        )
+    ]
+    client = client_for(user)
+
+    response = client.post("/api/auth/login", json={"username": "carlos", "password": "Correct-password-123"})
+
+    assert response.status_code == 200
+    assert response.json()["user"]["branch"] == {"id": 3, "code": "HQ", "name": "Central"}
+
+    user.branch_assignments.append(
+        UserBranchAssignment(
+            id=12,
+            user_id=user.id,
+            branch_id=4,
+            branch=Branch(id=4, code="BR2", name="Branch 2", branch_type_id=1, is_active=True),
+            valid_from=now - timedelta(minutes=1),
+            valid_until=None,
+            assigned_by_user_id=user.id,
+            status="ACTIVE",
+        )
+    )
+    response = client.post("/api/auth/login", json={"username": "carlos", "password": "Correct-password-123"})
+
+    assert response.status_code == 200
+    assert response.json()["user"]["branch"] is None
+
+
 def test_login_rejects_unknown_user_and_wrong_password_generically() -> None:
     known_client = client_for(make_user())
     unknown_client = client_for(None)
@@ -125,6 +167,35 @@ def test_me_requires_token() -> None:
     response = client.get("/api/auth/me")
 
     assert response.status_code == 401
+
+
+def test_openapi_documents_json_login_and_http_bearer_authentication() -> None:
+    schema = TestClient(app).get("/openapi.json").json()
+
+    assert schema["paths"]["/api/auth/login"]["post"]["requestBody"]["content"].get("application/json")
+    assert schema["components"]["securitySchemes"]["HTTPBearer"]["type"] == "http"
+    assert schema["components"]["securitySchemes"]["HTTPBearer"]["scheme"] == "bearer"
+
+
+def test_auth_rejects_non_bearer_authorization_scheme() -> None:
+    client = client_for(make_user())
+
+    response = client.get("/api/auth/me", headers={"Authorization": "Basic Y2FybG9zOnBhc3M="})
+
+    assert response.status_code == 401
+
+
+def test_login_distinguishes_database_unavailability_from_bad_credentials() -> None:
+    class UnavailableSession:
+        def scalar(self, statement: object) -> object:
+            raise SQLAlchemyError("database unavailable")
+
+    app.dependency_overrides[get_db] = lambda: UnavailableSession()
+    response = TestClient(app).post("/api/auth/login", json={"username": "carlos", "password": "Correct-password-123"})
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "5"
+    assert response.json() == {"detail": "Servicio de autenticación no disponible"}
 
 
 def test_me_uses_authenticated_token_identity() -> None:

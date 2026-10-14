@@ -3,15 +3,16 @@
 Backend del sistema web institucional de gestión y registro de visitas de SeNaSa.
 Proyecto **independiente** del frontend (React + Vite); no comparte archivos ni configuración con él.
 
-> **Estado actual:** Fases 1 a 13 completadas. Existen modelos ORM, migraciones aplicadas,
-> autenticación JWT, autorización, aislamiento por sucursal, usuarios, visitantes, visitas,
-> auditoría, Dashboard y Reportes. Notificaciones y citas/pre-registro siguen pendientes.
+> **Estado actual:** API implementada para autenticación JWT, autorización y aislamiento por
+> sucursal, usuarios, visitantes, visitas, auditoría, Dashboard y Reportes. Notificaciones y
+> citas/pre-registro no forman parte del contrato actual. Ver [docs/backend-description.md](docs/backend-description.md)
+> para el contrato de integración y el procedimiento de primera instalación.
 
 ## 1. Qué es el proyecto
 
 API REST para el registro y consulta de visitas institucionales de SeNaSa, con soporte
-para múltiples sucursales/puntos de servicio. Una regla de negocio central (a implementar
-en fases posteriores) es que **un usuario asignado a una sucursal no puede consultar,
+para múltiples sucursales/puntos de servicio. Una regla de negocio central es que
+**un usuario asignado a una sucursal no puede consultar,
 modificar ni eliminar información de otra sucursal**; esta restricción se aplicará en el
 backend, no solo en el frontend.
 
@@ -79,7 +80,7 @@ Variables principales:
 
 - `DATABASE_URL`: cadena `mssql+pyodbc` desde `.env`; en desarrollo local se usa `odbc_connect` con Shared Memory y autenticación Windows
 - `JWT_SECRET_KEY`: clave secreta para firmar JWT (cámbiala en producción)
-- `CORS_ORIGINS`: orígenes permitidos para el frontend (por defecto `http://localhost:5173`)
+- `CORS_ORIGINS`: lista separada por comas de orígenes permitidos; incluye localhost y 127.0.0.1 en puertos 5173 y 8443
 - `ENVIRONMENT`: `development` o `production`
 
 ## 8. Iniciar FastAPI
@@ -128,64 +129,30 @@ alembic current
 alembic history
 ```
 
-## 12. Autenticación inicial
+## 12. Contrato de autenticación y primera instalación
 
-La autenticación usa Argon2 mediante `pwdlib` y tokens JWT firmados con `JWT_SECRET_KEY`.
-El token solo contiene `sub`, `type`, `iat` y `exp`; no contiene contraseñas, hashes ni permisos.
+El login recibe JSON (`username`, `password`) en `POST /api/auth/login`. La API devuelve un
+JWT de acceso y datos básicos del usuario; las demás rutas protegidas usan
+`Authorization: Bearer <token>`. No hay endpoints de refresh/logout. La respuesta `user.branch`
+solo se informa cuando hay exactamente una asignación vigente a una sucursal activa.
 
-Login JSON:
+Para una base vacía, aplica primero `alembic upgrade head` y sigue el procedimiento manual,
+único y transaccional de [docs/backend-description.md](docs/backend-description.md#inicialización-segura-de-primera-instalación).
+Ese comando crea primer usuario, SUPER_ADMIN, asignación inicial, permisos y catálogos; solicita
+la contraseña sin eco. **No ejecutes el bootstrap en una base con usuarios existentes.** No se
+crean usuarios, roles ni catálogos automáticamente al iniciar FastAPI.
 
-```http
-POST /api/auth/login
-Content-Type: application/json
-```
-
-```json
-{
-  "username": "usuario",
-  "password": "contraseña"
-}
-```
-
-La respuesta contiene `access_token`, `token_type` y datos básicos del usuario, nunca `PasswordHash`.
-El endpoint `GET /api/auth/me` requiere `Authorization: Bearer <token>`.
-
-Para crear manualmente un usuario local de desarrollo, sin ejecutarlo al iniciar FastAPI:
-
-```powershell
-python -m scripts.bootstrap_user --username admin
-```
-
-El comando solicita la contraseña de forma interactiva, genera un hash Argon2 y no crea roles ni sucursales automáticamente.
-
-## 13. Autorización y seeds manuales
-
-La autorización se evalúa en backend mediante `PermissionService` y respeta esta precedencia:
-
-```text
-DENY explícito > ALLOW explícito > permiso heredado por RolePermission > denegar
-```
-
-Los permisos `BRANCH` requieren `branch_id` y una asignación vigente en `UserBranchAssignment`. Los permisos `GLOBAL` no requieren sucursal y no se utiliza una sucursal ficticia llamada `GLOBAL`.
-
-Seeds manuales, idempotentes y transaccionales:
-
-```powershell
-python -m scripts.seed_permissions
-python -m scripts.seed_roles
-python -m scripts.seed_role_permissions --assigned-by-user-id <id>
-```
-
-El último comando requiere que exista un usuario activo para registrar `AssignedByUserId`. Ningún seed se ejecuta al iniciar FastAPI.
-
-Endpoint diagnóstico protegido:
+Permisos de sucursal se evalúan con la asignación vigente resuelta por backend; un `branch_id`
+en la petición solo puede comprobar el contexto, no concederlo. Los permisos globales no usan
+sucursal. Para validar un permiso de forma diagnóstica:
 
 ```http
-GET /api/auth/permissions/{permission_code}?branch_id=1
+GET /api/auth/permissions/VIEW_VISITORS?branch_id=1
 Authorization: Bearer <token>
 ```
 
-Solo muestra el resultado de evaluación y no otorga permisos. No reemplaza la autorización específica de los endpoints de negocio.
+Para permisos `GLOBAL`, omite `branch_id`. Este endpoint no reemplaza la autorización de las
+rutas de negocio. Los catálogos no tienen endpoints HTTP actualmente.
 
 ## 16. Gestión de visitantes
 
