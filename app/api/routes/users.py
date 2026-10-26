@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
+from app.api.responses import errors
 from app.api.dependencies.auth import CurrentUser
 from app.api.dependencies.permissions import DbSession, require_permission
 from app.application.dto.users import (
@@ -80,7 +81,7 @@ def require_global_permission(actor_id: int, permission_code: str, db: Session) 
         raise ForbiddenError("No tiene el permiso requerido para esta operación.")
 
 
-@router.get("", response_model=UserListResponse)
+@router.get("", response_model=UserListResponse, responses=errors(401, 403, 422))
 def list_users(
     actor: ManageUsers,
     db: DbSession,
@@ -102,49 +103,49 @@ def list_users(
     return UserListResponse(items=[serialize_user(user) for user in users], total=total, page=page, page_size=page_size)
 
 
-@router.get("/{user_id}", response_model=UserResponse)
+@router.get("/{user_id}", response_model=UserResponse, responses=errors(401, 403, 404, 422))
 def get_user(user_id: int, actor: ManageUsers, db: DbSession) -> UserResponse:
     return serialize_user(UserManagementService(db).get_user(user_id))
 
 
-@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED, responses=errors(401, 403, 404, 409, 422))
 def create_user(payload: UserCreate, actor: ManageUsers, db: DbSession, request: Request) -> UserResponse:
     if payload.branch_id is not None:
         require_global_permission(actor.id, "ASSIGN_USER_BRANCH", db)
     return serialize_user(UserManagementService(db).create_user(payload, actor.id, audit_context_from_request(request)))
 
 
-@router.patch("/{user_id}", response_model=UserResponse)
+@router.patch("/{user_id}", response_model=UserResponse, responses=errors(401, 403, 404, 409, 422))
 def update_user(user_id: int, payload: UserUpdate, actor: ManageUsers, db: DbSession, request: Request) -> UserResponse:
     return serialize_user(UserManagementService(db).update_user(user_id, payload, actor.id, audit_context_from_request(request)))
 
 
-@router.post("/{user_id}/activate", response_model=UserResponse)
+@router.post("/{user_id}/activate", response_model=UserResponse, responses=errors(401, 403, 404, 409, 422))
 def activate_user(user_id: int, actor: ManageUsers, db: DbSession, request: Request) -> UserResponse:
     return serialize_user(UserManagementService(db).set_active(user_id, True, actor.id, audit_context_from_request(request)))
 
 
-@router.post("/{user_id}/deactivate", response_model=UserResponse)
+@router.post("/{user_id}/deactivate", response_model=UserResponse, responses=errors(401, 403, 404, 409, 422))
 def deactivate_user(user_id: int, actor: ManageUsers, db: DbSession, request: Request) -> UserResponse:
     return serialize_user(UserManagementService(db).set_active(user_id, False, actor.id, audit_context_from_request(request)))
 
 
-@router.get("/{user_id}/assignments", response_model=list[UserAssignmentResponse])
+@router.get("/{user_id}/assignments", response_model=list[UserAssignmentResponse], responses=errors(401, 403, 404, 422))
 def list_assignments(user_id: int, actor: ManageUsers, db: DbSession) -> list[UserAssignmentResponse]:
     return [serialize_assignment(item) for item in UserManagementService(db).list_assignments(user_id)]
 
 
-@router.post("/{user_id}/assignments", response_model=UserAssignmentResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{user_id}/assignments", response_model=UserAssignmentResponse, status_code=status.HTTP_201_CREATED, responses=errors(401, 403, 404, 409, 422))
 def create_assignment(user_id: int, payload: UserAssignmentCreate, actor: AssignBranches, db: DbSession, request: Request) -> UserAssignmentResponse:
     return serialize_assignment(UserManagementService(db).create_assignment(user_id, payload, actor.id, audit_context_from_request(request)))
 
 
-@router.post("/{user_id}/transfer", response_model=UserAssignmentResponse)
+@router.post("/{user_id}/transfer", response_model=UserAssignmentResponse, responses=errors(401, 403, 404, 409, 422))
 def transfer_user(user_id: int, payload: UserTransferRequest, actor: MoveBranches, db: DbSession, request: Request) -> UserAssignmentResponse:
     return serialize_assignment(UserManagementService(db).transfer_user(user_id, payload, actor.id, audit_context_from_request(request)))
 
 
-@router.get("/{user_id}/roles", response_model=list[RoleResponse])
+@router.get("/{user_id}/roles", response_model=list[RoleResponse], responses=errors(401, 403, 404, 422))
 def list_user_roles(user_id: int, actor: ManageUsers, db: DbSession) -> list[RoleResponse]:
     user = UserManagementService(db).get_user(user_id)
     return [

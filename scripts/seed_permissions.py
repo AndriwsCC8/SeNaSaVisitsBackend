@@ -1,20 +1,11 @@
-"""Idempotently seed the approved permission catalog. Run manually only."""
-from __future__ import annotations
-
-from sqlalchemy import select
-
-from app.infrastructure.database.session import SessionLocal
-from app.infrastructure.persistence.models import Permission
-from scripts.permission_catalog import PERMISSIONS
+"""OBSOLETO: usar python -m scripts.seed_authorization (ver docs/backend-description.md)."""
 
 
 def main() -> None:
-    with SessionLocal.begin() as db:
-        for code, name, resource, action, scope in PERMISSIONS:
-            permission = db.scalar(select(Permission).where(Permission.code == code))
-            if permission is None:
-                db.add(Permission(code=code, name=name, description=name, resource=resource, action=action, scope=scope))
-    print(f"Permisos procesados: {len(PERMISSIONS)}")
+    raise SystemExit(
+        "scripts.seed_permissions esta obsoleto y no escribe nada. Procedimiento vigente: alembic upgrade head; "
+        "python -m scripts.seed_authorization; python -m scripts.load_reference_data; python -m scripts.bootstrap_first_admin."
+    )
 
 
 if __name__ == "__main__":

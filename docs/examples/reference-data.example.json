@@ -1,0 +1,19 @@
+{
+  "is_example": true,
+  "branch_types": [
+    { "code": "EJEMPLO_TIPO_SUCURSAL", "name": "EJEMPLO - Tipo de sucursal (reemplazar)" }
+  ],
+  "branches": [
+    {
+      "code": "EJEMPLO_SUCURSAL_1",
+      "name": "EJEMPLO - Sucursal (reemplazar)",
+      "branch_type_code": "EJEMPLO_TIPO_SUCURSAL"
+    }
+  ],
+  "visitor_types": [
+    { "code": "EJEMPLO_TIPO_VISITANTE", "name": "EJEMPLO - Tipo de visitante (reemplazar)" }
+  ],
+  "visit_reasons": [
+    { "code": "EJEMPLO_MOTIVO", "name": "EJEMPLO - Motivo de visita (reemplazar)" }
+  ]
+}

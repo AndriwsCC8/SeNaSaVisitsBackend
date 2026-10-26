@@ -106,8 +106,9 @@ class DashboardService:
 
     @staticmethod
     def _filters(scope: DashboardScope, date_from: date | datetime | None, date_to: date | datetime | None):
-        if date_from is not None and date_to is not None and date_to < date_from:
-            raise ValidationError("date_to no puede ser anterior a date_from.")
+        if date_from is not None and date_to is not None:
+            if DashboardService._start_datetime(date_from) >= DashboardService._end_datetime(date_to):
+                raise ValidationError("date_to debe ser posterior a date_from; el límite superior es exclusivo.")
         filters = []
         if not scope.is_global:
             if scope.branch_id is None:

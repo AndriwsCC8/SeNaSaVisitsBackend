@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 from sqlalchemy import func, select
@@ -140,6 +140,12 @@ class AuditQueryService:
         date_from: datetime | None = None,
         date_to: datetime | None = None,
     ) -> tuple[list[AuditLog], int]:
+        if date_from is not None:
+            date_from = self._utc_naive(date_from)
+        if date_to is not None:
+            date_to = self._utc_naive(date_to)
+        if date_from is not None and date_to is not None and date_from >= date_to:
+            raise ValidationError("date_to debe ser posterior a date_from; el límite superior es exclusivo.")
         filters = []
         if actor_user_id is not None:
             filters.append(AuditLog.actor_user_id == actor_user_id)
@@ -154,7 +160,7 @@ class AuditQueryService:
         if date_from is not None:
             filters.append(AuditLog.created_at >= date_from)
         if date_to is not None:
-            filters.append(AuditLog.created_at <= date_to)
+            filters.append(AuditLog.created_at < date_to)
         total = self.db.scalar(select(func.count(AuditLog.id)).where(*filters)) or 0
         logs = list(
             self.db.scalars(
@@ -166,3 +172,9 @@ class AuditQueryService:
             ).all()
         )
         return logs, total
+
+    @staticmethod
+    def _utc_naive(value: datetime) -> datetime:
+        if value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value

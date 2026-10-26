@@ -3,11 +3,12 @@ se registrarán aquí en fases posteriores.
 """
 from fastapi import APIRouter
 
-from app.api.routes import audit, auth, dashboard, health, reports, users, visitors, visits
+from app.api.routes import audit, auth, catalogs, dashboard, health, reports, users, visitors, visits
 
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
+api_router.include_router(catalogs.router)
 api_router.include_router(users.router)
 api_router.include_router(visitors.router)
 api_router.include_router(visits.router)

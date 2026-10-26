@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
+from app.api.responses import errors
 from app.api.dependencies.permissions import DbSession, require_permission
 from app.application.dto.audit import AuditLogListResponse, AuditLogResponse
 from app.application.services.audit import AuditQueryService, AuditService
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/audit-logs", tags=["audit"])
 ViewAuditLogs = Annotated[object, Depends(require_permission("VIEW_AUDIT_LOGS"))]
 
 
-@router.get("", response_model=AuditLogListResponse)
+@router.get("", response_model=AuditLogListResponse, responses=errors(401, 403, 422))
 def list_audit_logs(
     actor: ViewAuditLogs,
     db: DbSession,

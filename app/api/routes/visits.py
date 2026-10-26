@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
+from app.api.responses import errors
 from app.api.dependencies.auth import CurrentUser
 from app.api.dependencies.branch_access import require_branch_permission_context
 from app.api.dependencies.permissions import DbSession
@@ -70,7 +71,7 @@ def serialize_visit(visit: Visit) -> VisitResponse:
     )
 
 
-@router.get("", response_model=VisitListResponse)
+@router.get("", response_model=VisitListResponse, responses=errors(401, 403, 422))
 def list_visits(
     context: ViewVisitsContext,
     db: DbSession,
@@ -97,12 +98,12 @@ def list_visits(
     return VisitListResponse(items=[serialize_visit(visit) for visit in visits], total=total, page=page, page_size=page_size)
 
 
-@router.get("/{visit_id}", response_model=VisitResponse)
+@router.get("/{visit_id}", response_model=VisitResponse, responses=errors(401, 403, 404, 422))
 def get_visit(visit_id: int, context: ViewVisitsContext, db: DbSession) -> VisitResponse:
     return serialize_visit(VisitManagementService(db).get_visit(context, visit_id))
 
 
-@router.post("", response_model=VisitResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=VisitResponse, status_code=status.HTTP_201_CREATED, responses=errors(401, 403, 404, 409, 422))
 def create_visit(
     payload: VisitCreate,
     user: CurrentUser,
@@ -113,7 +114,7 @@ def create_visit(
     return serialize_visit(VisitManagementService(db).create_visit(context, user.id, payload, audit_context_from_request(request)))
 
 
-@router.patch("/{visit_id}", response_model=VisitResponse)
+@router.patch("/{visit_id}", response_model=VisitResponse, responses=errors(401, 403, 404, 409, 422))
 def update_visit(
     visit_id: int,
     payload: VisitUpdate,
@@ -125,7 +126,7 @@ def update_visit(
     return serialize_visit(VisitManagementService(db).update_visit(context, visit_id, payload, user.id, audit_context_from_request(request)))
 
 
-@router.post("/{visit_id}/complete", response_model=VisitResponse)
+@router.post("/{visit_id}/complete", response_model=VisitResponse, responses=errors(401, 403, 404, 409, 422))
 def complete_visit(
     visit_id: int,
     payload: VisitCompleteRequest,
@@ -137,7 +138,7 @@ def complete_visit(
     return serialize_visit(VisitManagementService(db).complete_visit(context, user.id, visit_id, payload, audit_context_from_request(request)))
 
 
-@router.post("/{visit_id}/cancel", response_model=VisitResponse)
+@router.post("/{visit_id}/cancel", response_model=VisitResponse, responses=errors(401, 403, 404, 409, 422))
 def cancel_visit(
     visit_id: int,
     payload: VisitCancelRequest,

@@ -1,20 +1,11 @@
-"""Idempotently seed the approved role catalog. Run manually only."""
-from __future__ import annotations
-
-from sqlalchemy import select
-
-from app.infrastructure.database.session import SessionLocal
-from app.infrastructure.persistence.models import Role
-from scripts.permission_catalog import ROLES
+"""OBSOLETO: usar python -m scripts.seed_authorization (ver docs/backend-description.md)."""
 
 
 def main() -> None:
-    with SessionLocal.begin() as db:
-        for code, name, description in ROLES:
-            role = db.scalar(select(Role).where(Role.code == code))
-            if role is None:
-                db.add(Role(code=code, name=name, description=description))
-    print(f"Roles procesados: {len(ROLES)}")
+    raise SystemExit(
+        "scripts.seed_roles esta obsoleto y no escribe nada. Procedimiento vigente: alembic upgrade head; "
+        "python -m scripts.seed_authorization; python -m scripts.load_reference_data; python -m scripts.bootstrap_first_admin."
+    )
 
 
 if __name__ == "__main__":

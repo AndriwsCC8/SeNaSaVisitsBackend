@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.dependencies.auth import CurrentUser
+from app.api.responses import errors
 from app.application.dto.auth import (
     AuthenticatedUserResponse,
     BranchSummary,
@@ -108,12 +109,12 @@ def login(credentials: LoginRequest, db: Annotated[Session, Depends(get_db)], re
     )
 
 
-@router.get("/me", response_model=AuthenticatedUserResponse)
+@router.get("/me", response_model=AuthenticatedUserResponse, responses=errors(401))
 def current_user(user: CurrentUser) -> AuthenticatedUserResponse:
     return serialize_user(user)
 
 
-@router.get("/permissions/{permission_code}")
+@router.get("/permissions/{permission_code}", responses=errors(401))
 def check_permission(
     permission_code: str,
     user: CurrentUser,

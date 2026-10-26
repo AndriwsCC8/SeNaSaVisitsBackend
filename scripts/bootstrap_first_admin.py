@@ -1,36 +1,48 @@
-"""Create the first authorized administrator and required starter catalogs.
+"""Create (or verify) the first administrator. Manual command; never runs from FastAPI startup.
 
-This command is intentionally manual and refuses to run once any user exists.
-It never runs from FastAPI startup. Use only after applying the approved Alembic head.
+Prerequisites, in order:
+  1. alembic upgrade head
+  2. python -m scripts.seed_authorization          (roles and permissions)
+  3. python -m scripts.load_reference_data ...     (official branches; branch must exist)
+  4. python -m scripts.bootstrap_first_admin ...   (this command)
+
+The password is only requested interactively and is never logged or echoed.
 """
 from __future__ import annotations
 
 import argparse
 import getpass
+import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.application.services.authorization import PermissionService
 from app.core.security import hash_password
-from app.infrastructure.database.session import SessionLocal
 from app.infrastructure.persistence.models import (
     Branch,
-    BranchType,
     Permission,
     Role,
     RolePermission,
     User,
     UserBranchAssignment,
     UserRole,
-    VisitReason,
-    VisitorType,
 )
 from scripts.permission_catalog import PERMISSIONS, ROLE_PERMISSION_CODES, ROLES
 
-NamedCatalog = TypeVar("NamedCatalog", BranchType, VisitorType, VisitReason)
+logger = logging.getLogger("senasa_visits.bootstrap")
+
+ADMIN_ROLE_CODE = "SUPER_ADMIN"
+
+
+@dataclass(frozen=True)
+class BootstrapResult:
+    user_id: int
+    branch_id: int
+    created: bool
 
 
 def parse_catalog_entry(value: str) -> tuple[str, str]:
@@ -48,19 +60,69 @@ def parse_catalog_entry(value: str) -> tuple[str, str]:
 
 
 def validate_initial_password(password: str) -> None:
-    if len(password) < 12 or not any(char.islower() for char in password) or not any(char.isupper() for char in password) or not any(char.isdigit() for char in password):
+    if len(password) < 12 or not any(c.islower() for c in password) or not any(c.isupper() for c in password) or not any(c.isdigit() for c in password):
         raise ValueError("La contraseña inicial debe tener al menos 12 caracteres, una minúscula, una mayúscula y un número")
 
 
-def upsert_named_catalog(db: Session, model: type[NamedCatalog], code: str, name: str) -> NamedCatalog:
-    item = db.scalar(select(model).where(model.code == code))
-    if item is None:
-        item = model(code=code, name=name, is_active=True)
-        db.add(item)
-        db.flush()
-    elif not item.is_active or item.name != name:
-        raise ValueError(f"El catálogo {model.__tablename__}.{code} ya existe con datos diferentes o está inactivo")
-    return item
+def _load_catalog(db: Session) -> tuple[dict[str, Role], dict[str, Permission]]:
+    roles = {role.code: role for role in db.scalars(select(Role)).all()}
+    permissions = {permission.code: permission for permission in db.scalars(select(Permission)).all()}
+    problems: list[str] = []
+    for code, *_ in ROLES:
+        if code not in roles:
+            problems.append(f"falta el rol {code}")
+        elif not roles[code].is_active:
+            problems.append(f"el rol {code} está inactivo")
+    for code, _name, _resource, _action, scope in PERMISSIONS:
+        permission = permissions.get(code)
+        if permission is None:
+            problems.append(f"falta el permiso {code}")
+        elif not permission.is_active or permission.scope != scope:
+            problems.append(f"el permiso {code} está inactivo o con ámbito distinto")
+    if problems:
+        raise RuntimeError("Catálogo de autorización incompleto o inconsistente (ejecute scripts.seed_authorization): " + "; ".join(problems))
+    return roles, permissions
+
+
+def _verify_effective_permissions(db: Session, user_id: int, branch_id: int) -> None:
+    """Confirm through the real authorization service that every catalog permission is effective."""
+    service = PermissionService(db)
+    missing = [
+        code
+        for code, _name, _resource, _action, scope in PERMISSIONS
+        if not service.has_permission(user_id, code, branch_id if scope == "BRANCH" else None)
+    ]
+    if missing:
+        raise RuntimeError("El administrador no obtiene permisos efectivos: " + ", ".join(missing))
+
+
+def _configuration_problems(db: Session, user: User, branch: Branch, roles: dict[str, Role], permissions: dict[str, Permission]) -> list[str]:
+    problems: list[str] = []
+    if not user.is_active:
+        problems.append("el usuario existe pero está inactivo")
+    active_roles = db.scalars(select(UserRole).where(UserRole.user_id == user.id, UserRole.is_active.is_(True))).all()
+    if not any(item.role_id == roles[ADMIN_ROLE_CODE].id for item in active_roles):
+        problems.append(f"el usuario no tiene el rol {ADMIN_ROLE_CODE} activo")
+    assignments = db.scalars(
+        select(UserBranchAssignment).where(
+            UserBranchAssignment.user_id == user.id,
+            UserBranchAssignment.status == "ACTIVE",
+            UserBranchAssignment.valid_until.is_(None),
+        )
+    ).all()
+    if len(assignments) != 1 or assignments[0].branch_id != branch.id:
+        problems.append("el usuario no tiene exactamente una asignación vigente a la sucursal indicada")
+    granted = set(
+        db.scalars(
+            select(RolePermission.permission_id).where(
+                RolePermission.role_id == roles[ADMIN_ROLE_CODE].id, RolePermission.is_active.is_(True)
+            )
+        ).all()
+    )
+    missing = sorted(code for code in ROLE_PERMISSION_CODES[ADMIN_ROLE_CODE] if permissions[code].id not in granted)
+    if missing:
+        problems.append("al rol SUPER_ADMIN le faltan permisos: " + ", ".join(missing))
+    return problems
 
 
 def initialize_first_admin(
@@ -71,66 +133,30 @@ def initialize_first_admin(
     last_name: str,
     email: str | None,
     password: str,
-    branch_type_code: str,
-    branch_type_name: str,
     branch_code: str,
-    branch_name: str,
-    visitor_types: list[tuple[str, str]],
-    visit_reasons: list[tuple[str, str]],
-) -> tuple[int, int]:
+) -> BootstrapResult:
+    """Create the first administrator, or confirm an already correct configuration (no changes)."""
     validate_initial_password(password)
 
-    # On SQL Server, this table lock makes the empty-database guard serializable
-    # against concurrent executions of this one-time bootstrap.
-    existing_user_id = db.scalars(
-        select(User.id).with_hint(User, "TABLOCKX, HOLDLOCK", dialect_name="mssql")
-    ).first()
-    if existing_user_id is not None:
-        raise RuntimeError("El bootstrap inicial solo se permite cuando no existe ningún usuario")
+    # TABLOCKX makes the "no users yet" check safe against concurrent bootstrap runs on SQL Server.
+    users = db.scalars(select(User).with_hint(User, "TABLOCKX, HOLDLOCK", dialect_name="mssql")).all()
+    roles, permissions = _load_catalog(db)
 
-    branch_type = upsert_named_catalog(db, BranchType, branch_type_code, branch_type_name)
     branch = db.scalar(select(Branch).where(Branch.code == branch_code))
-    if branch is None:
-        branch = Branch(code=branch_code, name=branch_name, branch_type_id=branch_type.id, is_active=True)
-        db.add(branch)
-        db.flush()
-    elif not branch.is_active or branch.name != branch_name or branch.branch_type_id != branch_type.id:
-        raise ValueError(f"La sucursal {branch_code} ya existe con datos diferentes o está inactiva")
+    if branch is None or not branch.is_active:
+        raise RuntimeError(f"La sucursal {branch_code} no existe o está inactiva (cárguela con scripts.load_reference_data)")
 
-    for code, name in visitor_types:
-        upsert_named_catalog(db, VisitorType, code, name)
-    for code, name in visit_reasons:
-        upsert_named_catalog(db, VisitReason, code, name)
+    existing = next((user for user in users if user.username == username), None)
+    if existing is not None:
+        problems = _configuration_problems(db, existing, branch, roles, permissions)
+        if problems:
+            raise RuntimeError("Configuración parcial o ambigua; no se modifican privilegios automáticamente: " + "; ".join(problems))
+        _verify_effective_permissions(db, existing.id, branch.id)
+        logger.info("Administrador ya configurado: user_id=%s branch_id=%s (sin cambios)", existing.id, branch.id)
+        return BootstrapResult(existing.id, branch.id, created=False)
 
-    roles: dict[str, Role] = {}
-    for code, name, description in ROLES:
-        role = db.scalar(select(Role).where(Role.code == code))
-        if role is None:
-            role = Role(code=code, name=name, description=description, is_active=True)
-            db.add(role)
-            db.flush()
-        elif not role.is_active:
-            raise ValueError(f"El rol {code} existe, pero está inactivo")
-        roles[code] = role
-
-    permissions: dict[str, Permission] = {}
-    for code, name, resource, action, scope in PERMISSIONS:
-        permission = db.scalar(select(Permission).where(Permission.code == code))
-        if permission is None:
-            permission = Permission(
-                code=code,
-                name=name,
-                description=name,
-                resource=resource,
-                action=action,
-                scope=scope,
-                is_active=True,
-            )
-            db.add(permission)
-            db.flush()
-        elif not permission.is_active or permission.scope != scope:
-            raise ValueError(f"El permiso {code} existe inactivo o con un ámbito distinto")
-        permissions[code] = permission
+    if users:
+        raise RuntimeError("Ya existen usuarios y ninguno coincide con el nombre indicado; el bootstrap no promueve usuarios existentes")
 
     admin = User(
         username=username,
@@ -143,31 +169,32 @@ def initialize_first_admin(
     db.add(admin)
     db.flush()
 
-    admin_role = roles["SUPER_ADMIN"]
-    db.add(UserRole(user_id=admin.id, role_id=admin_role.id, assigned_by_user_id=admin.id, is_active=True))
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # SQL Server stores DATETIME2(3); truncate so the stored value never lies in the future.
+    valid_from = now.replace(microsecond=now.microsecond // 1000 * 1000)
+    db.add(UserRole(user_id=admin.id, role_id=roles[ADMIN_ROLE_CODE].id, assigned_by_user_id=admin.id, is_active=True))
     db.add(
         UserBranchAssignment(
             user_id=admin.id,
             branch_id=branch.id,
-            valid_from=datetime.now(timezone.utc).replace(tzinfo=None),
+            valid_from=valid_from,
             valid_until=None,
             assigned_by_user_id=admin.id,
             reason="Asignación inicial del primer administrador",
             status="ACTIVE",
         )
     )
-
-    grant_count = 0
+    # RolePermission requires an existing user, which is why grants are created here and not by the seed.
     for role_code, permission_codes in ROLE_PERMISSION_CODES.items():
         for permission_code in sorted(permission_codes):
-            existing = db.scalar(
+            already = db.scalar(
                 select(RolePermission.id).where(
                     RolePermission.role_id == roles[role_code].id,
                     RolePermission.permission_id == permissions[permission_code].id,
                     RolePermission.is_active.is_(True),
                 )
             )
-            if existing is None:
+            if already is None:
                 db.add(
                     RolePermission(
                         role_id=roles[role_code].id,
@@ -176,52 +203,47 @@ def initialize_first_admin(
                         is_active=True,
                     )
                 )
-                grant_count += 1
-
     db.flush()
-    return admin.id, branch.id
+    _verify_effective_permissions(db, admin.id, branch.id)
+    logger.info("Primer administrador creado: user_id=%s branch_id=%s", admin.id, branch.id)
+    return BootstrapResult(admin.id, branch.id, created=True)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Inicialización manual y única del primer administrador autorizado")
-    parser.add_argument("--confirm-initialization", action="store_true", help="Confirma que se inicializará la base vacía")
+    parser = argparse.ArgumentParser(description="Inicialización manual del primer administrador autorizado")
+    parser.add_argument("--confirm-initialization", action="store_true", help="Confirma la operación explícita")
     parser.add_argument("--username", required=True)
     parser.add_argument("--first-name", required=True)
     parser.add_argument("--last-name", required=True)
     parser.add_argument("--email")
-    parser.add_argument("--branch-type", required=True, type=parse_catalog_entry, metavar="CODIGO=NOMBRE")
-    parser.add_argument("--branch", required=True, type=parse_catalog_entry, metavar="CODIGO=NOMBRE")
-    parser.add_argument("--visitor-type", required=True, action="append", type=parse_catalog_entry, metavar="CODIGO=NOMBRE")
-    parser.add_argument("--visit-reason", required=True, action="append", type=parse_catalog_entry, metavar="CODIGO=NOMBRE")
+    parser.add_argument("--branch-code", required=True, help="Código de una sucursal activa ya cargada")
     args = parser.parse_args()
     if not args.confirm_initialization:
-        parser.error("Debe agregar --confirm-initialization para confirmar la operación única")
+        parser.error("Debe agregar --confirm-initialization para confirmar la operación")
 
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     password = getpass.getpass("Contraseña inicial (mínimo 12 caracteres): ")
     if password != getpass.getpass("Repita la contraseña: "):
         parser.error("Las contraseñas no coinciden")
 
+    from app.infrastructure.database.session import SessionLocal
+
     try:
         with SessionLocal.begin() as db:
-            admin_id, branch_id = initialize_first_admin(
+            result = initialize_first_admin(
                 db,
-                username=args.username,
-                first_name=args.first_name,
-                last_name=args.last_name,
+                username=args.username.strip(),
+                first_name=args.first_name.strip(),
+                last_name=args.last_name.strip(),
                 email=args.email,
                 password=password,
-                branch_type_code=args.branch_type[0],
-                branch_type_name=args.branch_type[1],
-                branch_code=args.branch[0],
-                branch_name=args.branch[1],
-                visitor_types=args.visitor_type,
-                visit_reasons=args.visit_reason,
+                branch_code=args.branch_code.strip().upper(),
             )
     except (RuntimeError, ValueError) as exc:
-        parser.error(str(exc))
+        parser.error(f"Abortado; la transacción se revirtió. {exc}")
 
-    print(f"Inicialización completada. Usuario administrador ID={admin_id}; sucursal inicial ID={branch_id}.")
-    print("Se registraron roles, permisos, asignaciones y catálogos iniciales en una sola transacción.")
+    state = "creado" if result.created else "ya estaba configurado (sin cambios)"
+    print(f"Administrador {state}. Usuario ID={result.user_id}; sucursal ID={result.branch_id}.")
 
 
 if __name__ == "__main__":

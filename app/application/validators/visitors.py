@@ -37,3 +37,21 @@ def validate_email(value: str | None) -> str | None:
     if not normalized or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized):
         raise ValidationError("El email proporcionado no es válido.")
     return normalized
+
+
+def mask_phone(value: str | None) -> str | None:
+    """Keep only the last two digits; short values are fully masked."""
+    if not value:
+        return None
+    compact = value.strip()
+    return "*" * len(compact) if len(compact) <= 4 else "***" + compact[-2:]
+
+
+def mask_email(value: str | None) -> str | None:
+    """Keep the first character and the domain."""
+    if not value:
+        return None
+    local, separator, domain = value.strip().partition("@")
+    if not separator or not local:
+        return "***"
+    return f"{local[0]}***@{domain}"

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
+from app.application.dto.common import UtcDatetime
 
 
 class UserCreate(BaseModel):
@@ -41,8 +42,8 @@ class UserAssignmentResponse(BaseModel):
     id: int
     branch_id: int
     branch: BranchResponse
-    valid_from: datetime
-    valid_until: datetime | None
+    valid_from: UtcDatetime
+    valid_until: UtcDatetime | None
     status: str
     reason: str | None
 
@@ -57,9 +58,9 @@ class UserResponse(BaseModel):
     last_name: str
     employee_code: str | None
     is_active: bool
-    created_at: datetime
-    updated_at: datetime
-    deactivated_at: datetime | None
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
+    deactivated_at: UtcDatetime | None
     roles: list[RoleResponse]
     current_assignment: UserAssignmentResponse | None
 

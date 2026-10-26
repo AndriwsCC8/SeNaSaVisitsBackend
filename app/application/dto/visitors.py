@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, Field
+from app.application.dto.common import UtcDatetime
 
 
 class VisitorTypeResponse(BaseModel):
@@ -40,11 +39,12 @@ class VisitorResponse(BaseModel):
     last_name: str
     phone: str | None
     email: str | None
+    contact_masked: bool
     company: str | None
     visitor_type: VisitorTypeResponse | None
     is_active: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 class VisitorListResponse(BaseModel):

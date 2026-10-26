@@ -29,22 +29,23 @@ class VisitorManagementService:
         search: str | None = None,
         is_active: bool | None = None,
         visitor_type_id: int | None = None,
+        include_contact: bool = False,
     ) -> tuple[list[Visitor], int]:
         query = select(Visitor).options(selectinload(Visitor.visitor_type))
         count_query = select(func.count(Visitor.id)).select_from(Visitor)
         filters = []
         if search:
             pattern = f"%{search.strip()}%"
-            filters.append(
-                or_(
-                    Visitor.first_name.like(pattern),
-                    Visitor.last_name.like(pattern),
-                    Visitor.identification_normalized.like(pattern),
-                    Visitor.company.like(pattern),
-                    Visitor.email.like(pattern),
-                    Visitor.phone.like(pattern),
-                )
-            )
+            columns = [
+                Visitor.first_name.like(pattern),
+                Visitor.last_name.like(pattern),
+                Visitor.identification_normalized.like(pattern),
+                Visitor.company.like(pattern),
+            ]
+            # Protected contact data must not influence results for users without VIEW_VISITOR_CONTACT.
+            if include_contact:
+                columns += [Visitor.email.like(pattern), Visitor.phone.like(pattern)]
+            filters.append(or_(*columns))
         if is_active is not None:
             filters.append(Visitor.is_active.is_(is_active))
         if visitor_type_id is not None:

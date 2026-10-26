@@ -41,6 +41,14 @@ class Settings(BaseSettings):
         "http://localhost:5173,http://localhost:8443,https://localhost:8443,"
         "http://127.0.0.1:8443,https://127.0.0.1:8443"
     )
+    # La API usa Authorization: Bearer; no requiere cookies, por lo que queda desactivado.
+    cors_allow_credentials: bool = False
+
+    @model_validator(mode="after")
+    def validate_cors_origins(self) -> "Settings":
+        if "*" in self.cors_origins_list:
+            raise ValueError("CORS_ORIGINS no admite '*'; liste los orígenes explícitos.")
+        return self
 
     @model_validator(mode="after")
     def validate_jwt_secret(self) -> "Settings":

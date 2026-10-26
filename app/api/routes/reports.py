@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
+from app.api.responses import errors
 from app.api.dependencies.reports import ReportScopeDependency
 from app.api.dependencies.permissions import DbSession
 from app.application.dto.reports import ReportGroupBy, VisitReportFilters, VisitReportResponse, VisitReportSummaryResponse
@@ -13,7 +14,7 @@ from app.application.services.reports import ReportService
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
-@router.get("/visits", response_model=VisitReportResponse)
+@router.get("/visits", response_model=VisitReportResponse, responses=errors(401, 403, 404, 422))
 def report_visits(
     scope: ReportScopeDependency,
     db: DbSession,
@@ -42,7 +43,7 @@ def report_visits(
     return VisitReportResponse(items=items, total=total, page=page, page_size=page_size, total_pages=(total + page_size - 1) // page_size)
 
 
-@router.get("/visits/summary", response_model=VisitReportSummaryResponse)
+@router.get("/visits/summary", response_model=VisitReportSummaryResponse, responses=errors(401, 403, 404, 422))
 def report_visits_summary(
     scope: ReportScopeDependency,
     db: DbSession,

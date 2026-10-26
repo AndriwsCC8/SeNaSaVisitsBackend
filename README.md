@@ -80,8 +80,8 @@ Variables principales:
 
 - `DATABASE_URL`: cadena `mssql+pyodbc` desde `.env`; en desarrollo local se usa `odbc_connect` con Shared Memory y autenticación Windows
 - `JWT_SECRET_KEY`: clave secreta para firmar JWT (cámbiala en producción)
-- `CORS_ORIGINS`: lista separada por comas de orígenes permitidos; incluye localhost y 127.0.0.1 en puertos 5173 y 8443
-- `ENVIRONMENT`: `development` o `production`
+- `CORS_ORIGINS`: lista separada por comas de orígenes exactos permitidos (por defecto localhost y 127.0.0.1 en 8443 y localhost:5173). Para un origen de pruebas o red local, agrégalo explícitamente, p. ej. `CORS_ORIGINS=http://localhost:5173,http://192.168.1.50:8443`; `*` se rechaza. `CORS_ALLOW_CREDENTIALS` es `false` por defecto (se usa Bearer, no cookies)
+- `ENVIRONMENT`: `development`, `testing` o `production`. Con `production`, `JWT_SECRET_KEY` de menos de 32 caracteres impide el arranque
 
 ## 8. Iniciar FastAPI
 
@@ -136,11 +136,15 @@ JWT de acceso y datos básicos del usuario; las demás rutas protegidas usan
 `Authorization: Bearer <token>`. No hay endpoints de refresh/logout. La respuesta `user.branch`
 solo se informa cuando hay exactamente una asignación vigente a una sucursal activa.
 
-Para una base vacía, aplica primero `alembic upgrade head` y sigue el procedimiento manual,
-único y transaccional de [docs/backend-description.md](docs/backend-description.md#inicialización-segura-de-primera-instalación).
-Ese comando crea primer usuario, SUPER_ADMIN, asignación inicial, permisos y catálogos; solicita
-la contraseña sin eco. **No ejecutes el bootstrap en una base con usuarios existentes.** No se
-crean usuarios, roles ni catálogos automáticamente al iniciar FastAPI.
+Para una instalación nueva, el orden es: `alembic upgrade head`, `python -m scripts.seed_authorization`,
+`python -m scripts.load_reference_data --file <oficial.json> --validate-only | --dry-run | --apply` y
+`python -m scripts.bootstrap_first_admin --confirm-initialization --username ... --first-name ... --last-name ... --branch-code ...`.
+El detalle (qué valida cada comando, conflictos, idempotencia y por qué el orden es obligatorio) está en
+[docs/backend-description.md](docs/backend-description.md#inicialización-segura-de-primera-instalación).
+No hay credenciales por defecto: la contraseña del primer administrador se solicita sin eco y nunca
+se pasa como argumento. La plantilla de datos es [docs/examples/reference-data.example.json](docs/examples/reference-data.example.json)
+(solo ejemplo; los datos oficiales los entrega la institución). **No ejecutes estos comandos contra una base real sin autorización.**
+No se crean usuarios, roles ni catálogos al iniciar FastAPI.
 
 Permisos de sucursal se evalúan con la asignación vigente resuelta por backend; un `branch_id`
 en la petición solo puede comprobar el contexto, no concederlo. Los permisos globales no usan
@@ -152,7 +156,25 @@ Authorization: Bearer <token>
 ```
 
 Para permisos `GLOBAL`, omite `branch_id`. Este endpoint no reemplaza la autorización de las
-rutas de negocio. Los catálogos no tienen endpoints HTTP actualmente.
+rutas de negocio. Los catálogos de solo lectura (`/api/branches`, `/api/branch-types`, `/api/visitor-types`,
+`/api/visit-reasons`, `/api/roles`) están descritos en [docs/backend-description.md](docs/backend-description.md#api-de-catálogos).
+
+### Probar el login y Bearer en Swagger
+
+1. Abre `/docs`, ejecuta `POST /api/auth/login` con `{"username": "...", "password": "..."}`.
+2. Copia `access_token`, pulsa **Authorize** y pega solo el token (el esquema es HTTP Bearer).
+3. El token dura `ACCESS_TOKEN_EXPIRE_MINUTES` (30 por defecto); al expirar las rutas responden `401` y hay que repetir el login (no hay refresh ni logout).
+
+### Códigos de error
+
+- `401`: token ausente, inválido, expirado o usuario inactivo.
+- `403`: identidad válida sin permiso, sin sucursal vigente o con un `branch_id` ajeno.
+- `409`: conflicto de estado o duplicado. `422`: validación de datos o rango de fechas.
+- Fallos internos devuelven `500` genérico sin detalles; el login devuelve `503` si la base no responde.
+
+### Fechas
+
+Los timestamps se almacenan y devuelven en UTC con sufijo `Z`. `date_from` es inclusivo y `date_to` exclusivo en visitas, dashboard, reportes y auditoría (en auditoría `date_to` antes era inclusivo). Detalle y guía para `America/Santo_Domingo` en [docs/backend-description.md](docs/backend-description.md#fechas-y-timestamps).
 
 ## 16. Gestión de visitantes
 
@@ -175,7 +197,7 @@ CREATE_VISITOR
 UPDATE_VISITOR
 ```
 
-La identificación se normaliza de forma conservadora para búsquedas y duplicados, pero `IdentificationNormalized` nunca se acepta desde el cliente ni aparece en respuestas. La identificación original se conserva y se devuelve enmascarada. Los visitantes sin identificación no se deduplican por nombre, teléfono, email o empresa.
+La identificación se normaliza de forma conservadora para búsquedas y duplicados, pero `IdentificationNormalized` nunca se acepta desde el cliente ni aparece en respuestas. La identificación original se conserva y se devuelve enmascarada. Teléfono y correo se devuelven completos solo con el permiso `VIEW_VISITOR_CONTACT`; sin él salen enmascarados (ver [docs/backend-description.md](docs/backend-description.md#privacidad-de-visitantes)). El contrato completo de la API está en [docs/api-contract.md](docs/api-contract.md). Los visitantes sin identificación no se deduplican por nombre, teléfono, email o empresa.
 
 Los listados aplican búsqueda, filtros, `COUNT`, `OFFSET` y `LIMIT` directamente en SQLAlchemy. La activación y desactivación son cambios lógicos mediante `IsActive`; no existe borrado físico.
 

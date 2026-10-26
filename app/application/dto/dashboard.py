@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
 from pydantic import BaseModel
+from app.application.dto.common import UtcDatetime
 
 
 class DashboardSummaryResponse(BaseModel):
     scope: str
     branch_id: int | None
-    date_from: datetime | None
-    date_to: datetime | None
+    date_from: UtcDatetime | None
+    date_to: UtcDatetime | None
     total_visits: int
     active_visits: int
     completed_visits: int

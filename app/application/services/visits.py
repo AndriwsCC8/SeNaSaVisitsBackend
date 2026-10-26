@@ -34,6 +34,8 @@ class VisitManagementService:
         search: str | None = None,
     ) -> tuple[list[Visit], int]:
         query, filters = self._scoped_query(context)
+        if date_from is not None and date_to is not None and self._utc_naive(date_from) >= self._utc_naive(date_to):
+            raise ValidationError("date_to debe ser posterior a date_from; el límite superior es exclusivo.")
         if status is not None:
             self._validate_status(status)
             filters.append(Visit.status == status)

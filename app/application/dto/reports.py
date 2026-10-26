@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
+from app.application.dto.common import UtcDatetime
 
 from app.application.dto.visits import VisitBranchResponse, VisitReasonResponse, VisitUserResponse, VisitVisitorResponse
 
@@ -28,8 +29,8 @@ class VisitReportFilters(BaseModel):
 
 class VisitReportItem(BaseModel):
     id: int
-    entry_at: datetime
-    exit_at: datetime | None
+    entry_at: UtcDatetime
+    exit_at: UtcDatetime | None
     status: str
     destination: str | None
     visited_person: str | None
@@ -40,7 +41,7 @@ class VisitReportItem(BaseModel):
     registered_by: VisitUserResponse
     completed_by_user_id: int | None
     cancelled_by_user_id: int | None
-    cancelled_at: datetime | None
+    cancelled_at: UtcDatetime | None
     cancellation_reason: str | None
 
 

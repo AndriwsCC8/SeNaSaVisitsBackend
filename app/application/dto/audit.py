@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from pydantic import BaseModel
+from app.application.dto.common import UtcDatetime
 
 
 class AuditLogResponse(BaseModel):
@@ -17,7 +16,7 @@ class AuditLogResponse(BaseModel):
     ip_address: str | None
     user_agent: str | None
     correlation_id: str | None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class AuditLogListResponse(BaseModel):

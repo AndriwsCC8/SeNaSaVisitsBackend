@@ -1,4 +1,7 @@
-"""Idempotently assign approved permissions to roles. Run manually only."""
+"""Re-sync approved role permissions after the first administrator exists (e.g. after the catalog grows).
+
+Requires scripts.seed_authorization first. Only adds missing grants; never revokes. Run manually only.
+"""
 from __future__ import annotations
 
 import argparse
@@ -28,7 +31,7 @@ def main() -> None:
         )
         if missing_roles or missing_permissions:
             raise SystemExit(
-                "Ejecuta primero seed_roles y seed_permissions. "
+                "Ejecuta primero scripts.seed_authorization. "
                 f"roles faltantes={missing_roles}, permisos faltantes={missing_permissions}"
             )
 

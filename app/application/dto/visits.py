@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
+from app.application.dto.common import UtcDatetime
 
 
 class VisitCreate(BaseModel):
@@ -67,18 +68,18 @@ class VisitResponse(BaseModel):
     visitor: VisitVisitorResponse
     branch: VisitBranchResponse
     registered_by: VisitUserResponse
-    entry_at: datetime
-    exit_at: datetime | None
+    entry_at: UtcDatetime
+    exit_at: UtcDatetime | None
     reason: VisitReasonResponse
     destination: str | None
     visited_person: str | None
     status: str
     notes: str | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
     completed_by: VisitUserResponse | None
     cancelled_by: VisitUserResponse | None
-    cancelled_at: datetime | None
+    cancelled_at: UtcDatetime | None
     cancellation_reason: str | None
 
 
