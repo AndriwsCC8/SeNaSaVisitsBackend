@@ -7,7 +7,7 @@ Fecha: 2026-10-26. Este documento **no define requisitos institucionales**: comp
 Estas decisiones aclaran el alcance. **No son evidencia de que algo esté implementado**: salvo lo indicado en el §2 como "comprobado", nada de lo marcado como futuro existe en el código.
 
 | # | Decisión | Clasificación | Efecto en este análisis |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | El frontend actual es una **maqueta o demo** que se presentará a los gerentes antes de implementar su funcionalidad real. Los gerentes podrían pedir cambios en pantallas, campos o procesos | Confirmado | Los campos y reglas del frontend son una **propuesta de demo**, no requisitos. Pueden cambiar tras la presentación |
 | 2 | El frontend **no se conecta todavía** al backend | Confirmado | No hay integración HTTP en curso |
 | 3 | El backend sigue preparándose para una futura integración con contratos y arquitectura coherentes | Confirmado | Se mantienen los contratos actuales; los cambios requieren las decisiones pendientes |
@@ -26,7 +26,7 @@ Antes de congelar los requisitos del registro de visitas se debe **presentar el 
 ### Resumen de alcance
 
 | Categoría | Elementos |
-|---|---|
+| --- | --- |
 | Requisitos confirmados | Existen carnets de visitantes; el frontend es un demo y no se conecta todavía; el backend sigue preparándose para la integración |
 | Requisitos descartados | Generación e impresión de etiquetas; escaneo o captura de imágenes de documentos |
 | Funcionalidades futuras pendientes de definición | Validación con el Padrón de la JCE; Entra ID; correo automático; sistemas institucionales; notificaciones; citas y pre-registro |
@@ -35,7 +35,7 @@ Antes de congelar los requisitos del registro de visitas se debe **presentar el 
 ## 1. Fuentes y limitaciones
 
 | Fuente | Qué se usó | Limitación |
-|---|---|---|
+| --- | --- | --- |
 | **Backend** | Código real: modelos `Visit`, `Visitor`, DTOs, servicios, rutas, `scripts/permission_catalog.py`, pruebas, `docs/api-contract.md` | Comprobado por lectura y por una sonda de solo lectura (§6). Pruebas con sesiones simuladas o SQLite en memoria; no hay prueba contra SQL Server real |
 | **Frontend** | Únicamente el informe D1, tal como se pegó en la conversación (Fase D2). Se citan sus afirmaciones como **[D1]** | **No se leyó el código del frontend en esta fase.** Es una maqueta/demo (§0): sus campos y reglas no son requisitos confirmados. El informe D1 completo no está en el repositorio; `docs/frontend-compatibility-audit.md` solo recoge una parte. Todo lo del frontend es afirmación del informe, no verificada por mí |
 | **Excel** `Formulario_Registro_Visitantes.xlsx` (y `-1`) | Leído en solo lectura. Las cuatro copias encontradas tienen idéntico SHA-256. Hoja única "Registro de Visitantes". Control documental: código `GTI-FORM-000`, versión `01`, vigencia "3 años", **fecha de aprobación `XX/XX/XXXX`** (celda B12, marcador). Tabla en fila 14 con 11 columnas; filas 15-31 vacías. Sin validaciones de datos, listas, fórmulas ni formato condicional | **No se asume vigente.** Es un formulario en papel de captura; no define obligatoriedad, formatos ni catálogos |
@@ -47,7 +47,7 @@ Estados usados en la matriz: **CT** confirmado técnicamente · **DT** discrepan
 ## 2. Matriz de discrepancias
 
 | # | Campo o regla | Frontend [D1] | Backend [código] | Excel | Estado | Impacto en la integración | Pregunta concreta |
-|---|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Nombre y apellido | `name`, un solo texto obligatorio | `Visitor.first_name` y `last_name`, ambos obligatorios (≤100) | "Nombre del Visitante", una columna | DT + PD | El cliente debe dividir el nombre o el backend aceptar uno solo | ¿El nombre se captura en uno o dos campos? ¿El apellido es obligatorio? |
 | 2 | Identificación y normalización | `cedula` y `passport` separados y excluyentes; placeholder `000-0000000-0`; sin validación de formato | Un solo `identification` (≤50) sin tipo; se normaliza (valor numérico sin guiones/espacios; con letras conserva el guion); índice único sobre el normalizado → 409; la respuesta enmascara | "Documento de Identidad", una columna | DT + PD | Se pierde la distinción cédula/pasaporte; búsqueda con guiones falla (§6) | ¿Se necesita el tipo de documento? ¿Cuál es el formato válido de cédula y pasaporte? |
 | 3 | Teléfono y correo | `phone` y `email` opcionales sin validar; la tabla de visitas muestra el teléfono | `phone` ≤30 sin validar formato; `email` validado; **la visita no los devuelve**; en visitantes salen enmascarados sin `VIEW_VISITOR_CONTACT`; la búsqueda por contacto está limitada (Fase E) | Solo "Telefono"; no hay correo | DT + PD | La tabla de visitas no puede mostrar el teléfono sin una llamada adicional, y el recepcionista no lo vería completo | ¿El teléfono es obligatorio? ¿Quién puede verlo completo? ¿El correo se necesita? |
@@ -85,6 +85,7 @@ Estados usados en la matriz: **CT** confirmado técnicamente · **DT** discrepan
 ## 3. Preguntas institucionales por prioridad
 
 ### A. Bloqueantes para integrar el registro de visitas
+
 1. ¿Cuál es el formulario vigente: la maqueta, `GTI-FORM-000` v01 (sin fecha de aprobación) u otro? ¿Quién lo aprueba? Debe responderse **después de presentar el demo a los gerentes** y recoger sus observaciones. *Afecta al modelo de datos, DTOs y frontend; sin esto las demás respuestas no tienen referencia.*
 2. ¿Cuáles son los campos obligatorios de una visita? *Validaciones del backend y del formulario.*
 3. Piso, gerencia, tiempo estimado, fecha fin y equipos: ¿se registran? Para cada uno: dónde, con qué formato y si son únicos. Del carnet ya se sabe que se usan carnets existentes; falta definir cómo se registra y su unicidad. *Modelo `Visit`, esquema, DTOs; probablemente migración.*
@@ -97,36 +98,45 @@ Estados usados en la matriz: **CT** confirmado técnicamente · **DT** discrepan
 10. ¿Cuál es la lista oficial de motivos y se admite "Otro" con detalle? *Catálogo `visit-reasons`, carga de datos.*
 
 ### B. Permisos y aislamiento por sucursal
-11. ¿`RECEPTIONIST` debe completar y cancelar visitas (`UPDATE_VISIT`)? *Catálogo de permisos y asignaciones de rol.*
-12. ¿Quién ve teléfono y correo completos (`VIEW_VISITOR_CONTACT`)? El Excel pide teléfono. *Política de privacidad, DTOs.*
-13. ¿Qué otros roles existen (Supervisor, Seguridad, Auditor, Solo Lectura) y con qué permisos? *Catálogo de roles y permisos.*
-14. ¿Quién puede ver visitas de otras sucursales, incluido el administrador? *`/visits` hoy es solo de la sucursal propia.*
-15. ¿Los visitantes son globales entre sucursales? ¿El historial cruza sucursales? *Modelo `Visitor`, `VIEW_VISITORS`.*
-16. ¿Sucursal y regional son la misma entidad? ¿Cuál es la lista oficial? *Datos de referencia y catálogo de sucursales.*
-17. ¿Cómo debe el cliente conocer sus permisos efectivos? *Hoy no hay endpoint para listarlos.*
+
+1. ¿`RECEPTIONIST` debe completar y cancelar visitas (`UPDATE_VISIT`)? *Catálogo de permisos y asignaciones de rol.*
+2. ¿Quién ve teléfono y correo completos (`VIEW_VISITOR_CONTACT`)? El Excel pide teléfono. *Política de privacidad, DTOs.*
+3. ¿Qué otros roles existen (Supervisor, Seguridad, Auditor, Solo Lectura) y con qué permisos? *Catálogo de roles y permisos.*
+4. ¿Quién puede ver visitas de otras sucursales, incluido el administrador? *`/visits` hoy es solo de la sucursal propia.*
+5. ¿Los visitantes son globales entre sucursales? ¿El historial cruza sucursales? *Modelo `Visitor`, `VIEW_VISITORS`.*
+6. ¿Sucursal y regional son la misma entidad? ¿Cuál es la lista oficial? *Datos de referencia y catálogo de sucursales.*
+7. ¿Cómo debe el cliente conocer sus permisos efectivos? *Hoy no hay endpoint para listarlos.*
 
 ### C. Reportes y dashboard
-18. ¿Quién ve el dashboard y con qué alcance? *Permisos `VIEW_REPORTS`/`VIEW_GLOBAL_REPORTS`.*
-19. ¿Qué métricas son oficiales (por hora, por departamento, tiempo promedio, ocupación, alertas)? *Nuevos endpoints o agregaciones.*
-20. ¿El día de reportes es el día local o UTC? *`visits-by-day`, filtros.*
-21. ¿Se requiere exportación (PDF/Excel)? *Fuera de alcance actual.*
+
+1. ¿Quién ve el dashboard y con qué alcance? *Permisos `VIEW_REPORTS`/`VIEW_GLOBAL_REPORTS`.*
+2. ¿Qué métricas son oficiales (por hora, por departamento, tiempo promedio, ocupación, alertas)? *Nuevos endpoints o agregaciones.*
+3. ¿El día de reportes es el día local o UTC? *`visits-by-day`, filtros.*
+4. ¿Se requiere exportación (PDF/Excel)? *Fuera de alcance actual.*
 
 ### D. Mejoras que pueden esperar
-22. Validación de formato de cédula y teléfono. 23. Normalizar el texto buscado para documentos con guiones. 24. Fusión de visitantes duplicados. 25. Lista negra o bloqueo de visitantes. 26. Foto, notificaciones y configuración por sucursal.
+
+- Validación de formato de cédula y teléfono.
+- Normalizar el texto buscado para documentos con guiones.
+- Fusión de visitantes duplicados.
+- Lista negra o bloqueo de visitantes.
+- Foto, notificaciones y configuración por sucursal.
 
 ### E. Citas y pre-registro (reservados para la última fase)
-27. No se plantean preguntas ni se analizan requisitos de citas ni de pre-registro en esta fase; se investigará el proceso institucional antes.
+
+- No se plantean preguntas ni se analizan requisitos de citas ni de pre-registro en esta fase; se investigará el proceso institucional antes.
 
 ### F. Integraciones futuras (no implementadas; sin interfaces ni autorizaciones confirmadas)
-28. **Padrón de la JCE:** ¿qué interfaz y autorización existen, qué datos se consultan y cuáles se guardan? *Afecta a identificación, nombre y duplicados.*
-29. **Entra ID:** ¿cómo se mapearían usuarios, roles y sucursales? ¿Se mantiene el login propio? *Afecta a autenticación y administración de usuarios.*
-30. **Correo automático y notificaciones:** ¿qué eventos, destinatarios y canales? *Afecta al modelo de notificaciones y a un futuro servicio de envío.*
-31. **Sistemas institucionales existentes:** ¿cuáles y con qué interfaces? *Afecta a la arquitectura de integración.*
+
+1. **Padrón de la JCE:** ¿qué interfaz y autorización existen, qué datos se consultan y cuáles se guardan? *Afecta a identificación, nombre y duplicados.*
+2. **Entra ID:** ¿cómo se mapearían usuarios, roles y sucursales? ¿Se mantiene el login propio? *Afecta a autenticación y administración de usuarios.*
+3. **Correo automático y notificaciones:** ¿qué eventos, destinatarios y canales? *Afecta al modelo de notificaciones y a un futuro servicio de envío.*
+4. **Sistemas institucionales existentes:** ¿cuáles y con qué interfaces? *Afecta a la arquitectura de integración.*
 
 ## 4. Revisión técnica adicional
 
 | Asunto | Estado | Evidencia |
-|---|---|---|
+| --- | --- | --- |
 | Recepción debe completar o cancelar visitas, pero `RECEPTIONIST` no tiene `UPDATE_VISIT` | **Comprobado en código.** `complete` y `cancel` exigen `UPDATE_VISIT`; `ROLE_PERMISSION_CODES["RECEPTIONIST"]` no lo incluye. La necesidad de negocio es solo del frontend [D1] y está **sin decidir**. Documentado en `docs/api-contract.md` y en el informe de compatibilidad (B-01). **Ninguna prueba afirma esta ausencia** (solo hay una para `VIEW_VISITOR_CONTACT`) | `scripts/permission_catalog.py`; rutas de visitas |
 | El frontend muestra el teléfono en las visitas; la respuesta de visitas no lo incluye | **Backend comprobado:** los campos de `VisitVisitorResponse` son `id`, `identification`, `first_name`, `last_name`, `company`; hay una prueba que impide `phone` y `email` en visitas y reportes. La tabla del frontend es solo **[D1]** | `app/application/dto/visits.py`; `tests/test_phase_c.py` |
 | Fechas locales sin zona interpretadas como UTC | **Backend comprobado:** `_utc_naive` deja un valor sin zona sin conversión (sonda: `09:00` → `09:00`); hay pruebas de conversión en `tests/test_phase_a.py`. Que el frontend envíe fechas sin zona es solo **[D1]** | `app/application/services/visits.py` |
@@ -141,6 +151,7 @@ Además, solo con lectura de código: las visitas de `ADMIN` también se limitan
 ## 5. Resultado
 
 ### Hallazgos bloqueantes
+
 1. No hay un formulario vigente confirmado: el Excel no tiene fecha de aprobación y la maqueta (un demo sujeto a cambios) es más amplia.
 2. El modelo de visita no soporta carnet, piso, gerencia, tipo por visita, tiempo estimado, fecha fin, equipos ni "Pendiente".
 3. `RECEPTIONIST` no puede completar ni cancelar visitas (decisión pendiente).
@@ -148,9 +159,11 @@ Además, solo con lectura de código: las visitas de `ADMIN` también se limitan
 5. No hay datos oficiales para motivos, tipos de visitante ni sucursales.
 
 ### Recomendación de fase siguiente
-0. **Etapa previa (sin código): presentar el demo a los gerentes y recopilar observaciones** sobre pantallas, campos, procesos y permisos. Solo después se congelan los requisitos.
+
+**Etapa previa (sin código):** presentar el demo a los gerentes y recopilar observaciones sobre pantallas, campos, procesos y permisos. Solo después se congelan los requisitos.
 
 Una vez presentado el demo y respondidas las preguntas de los grupos A y B:
+
 1. **Fase G1 (diseño, sin código):** decisión del modelo de visita; propuesta de esquema y migración presentada por separado para aprobación.
 2. **Fase G2 (backend sin cambio de esquema):** ajustes de permisos de rol según la decisión, normalización del texto buscado, endpoint de permisos efectivos si se aprueba, y pruebas.
 3. **Fase G3 (esquema):** migración aprobada y los campos nuevos de visita.
