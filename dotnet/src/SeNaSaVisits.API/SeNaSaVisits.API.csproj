@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\SeNaSaVisits.Application\SeNaSaVisits.Application.csproj" />
+    <ProjectReference Include="..\SeNaSaVisits.Infrastructure\SeNaSaVisits.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.1" />
+  </ItemGroup>
+</Project>
